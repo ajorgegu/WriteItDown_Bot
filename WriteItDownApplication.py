@@ -1,4 +1,4 @@
-from telegram.ext import Updater, InlineQueryHandler, CommandHandler
+from telegram.ext import Updater, InlineQueryHandler, CommandHandler, MessageHandler, Filters
 import requests, json
 from ItemsList import ItemsList
 
@@ -13,32 +13,26 @@ def getMessages():
     messagesDict = json.loads(messageJson)
     return messagesDict
 
-def iterMessages():
- 
-    messages = getMessages()
-    indice = len(messages["result"])-1
-    nameList = "aaaa"
-    items = ["Item1", "Item2"]
-    hour = "12-12-12 10:00:00"
-    #nameList = messages["result"][indice]["message"]["nameList"]
-    #items = messages["result"][indice]["message"]["items"]
-    #hour = messages["result"][indice]["message"]["hour"]
-    idchat = messages["result"][indice]["message"]["chat"]["id"]
-    showedList = save(nameList, items, hour)
-    print(showedList)
-    return idchat, showedList
-
-def save(nameList, items, hour):
-    itemList = ItemsList(nameList, items, hour)
+def save(update, context):
+    print(context.args)
+    itemList = ItemsList(context.args[0], context.args[1], context.args[2])
     items.append(itemList)
-    return itemList.showList
+    itemList.showList
+    update.message.reply_text(itemList.showList)
+
+def echo(update, context):
+    update.message.reply_text(update.message.text)
 
 def sendMessage(idchat, text):
     requests.get(URL + "sendMessage?text=" + text + "&chat_id=" + str(idchat))
 
 def main():
-    idchat, showedList = iterMessages()
-    sendMessage(idchat, showedList)
+    updater = Updater(TOKEN, use_context=True)
+    dp = updater.dispatcher
+    dp.add_handler(CommandHandler("save", save))
+    dp.add_handler(MessageHandler(Filters.text, echo))
+    updater.start_polling()
+    updater.idle()
 
 if __name__ == '__main__':
     main()

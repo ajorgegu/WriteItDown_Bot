@@ -7,4 +7,7 @@ class ItemsList:
     def showList(self):
         itemsSplitted = lambda items: items.join('\n')
         itemsToShow = itemsSplitted(self.items)
-        return f"Lista {self.name}:\n Items: {itemsToShow}\n Recordatorio: {self.hour}"
+        print(str(itemsToShow))
+        var = "Lista" + self.name + '\n' + "Items: " + itemsToShow + '\n' + "Recordatorio: " + self.hour
+        print(var)
+        return "Lista" + self.name + '\n' + "Items: " + itemsToShow + '\n' + "Recordatorio: " + self.hour
