@@ -1,43 +1,45 @@
 from telegram.ext import Updater, InlineQueryHandler, CommandHandler, MessageHandler, Filters
+from pprint import pprint
 import requests, json
 from ItemsList import ItemsList
 from BotConfiguration import BotConfiguration
+from MongoDbConfiguration import MongoDbConfiguration
+from DictToObject import DictToObject
 
 items = []
 configuration = BotConfiguration()
-
-def getMessages():
-    response = requests.get(configuration.url + configuration.token + "/getUpdates")
-    messageJson = response.content.decode("utf8")
-    messagesDict = json.loads(messageJson)
-    return messagesDict
-
-def sendMessage(idchat, text):
-    requests.get(configuration.url + "sendMessage?text=" + text + "&chat_id=" + str(idchat))
+mongo = MongoDbConfiguration()
 
 def save(update, context):
     itemList = ItemsList(context.args[0], context.args[1], context.args[2])
-    items.append(itemList)
-    itemList.showList()
-    message = "Saved list!\n\n" + itemList.showList()
-    update.message.reply_text(message)
+    document = mongo.db.itemsList.find({"_id": update.message.chat.id})
+    try:
+        if len(list(document)) == 0:  
+            mongo.db.itemsList.insert_one({"_id": update.message.chat.id, "lists": [itemList.__dict__]})
+        else:  
+            mongo.db.itemsList.update_one({"_id": update.message.chat.id}, {"$push": {"lists": itemList.__dict__ }})
+        message = "Saved list!\n\n" + itemList.showList()
+        update.message.reply_text(message)
+    except StopIteration as err:
+        print("StopIteration error:", err, "-- rewinding Cursor object.")
+        document.rewind()
 
 def echo(update, context):
-    print(context.args)
-    if not len(context.args) == 0 or context.args == None: update.message.reply_text(" ".join(update.message.text.split("/echo")))
+    if not context.args == None or len(context.args) == 0: update.message.reply_text(" ".join(update.message.text.split("/echo")))
     else: update.message.reply_text("Don't be shy, send anything! 😛")
 
 def help(update, context):
     allCommands = f"List of commands: 😎\n\n"
-    allCommands += "1. /echo text: Return the sent message.\n"
-    allCommands += "2. /save name items hour : Save a list and set a remainder hour.\n"
-    allCommands += "3. /add name items : Add items to an existing list.\n"
-    allCommands += "4. /remove name : Delete an existing list.\n"
-    allCommands += "5. /show name : Show a description's list.\n"
-    allCommands += "6. /changeName oldName newtName : Change the name of a created list.\n"
-    allCommands += "7. /changeHour name hour : Change the remainder hour of a created list. If the new hour is = 0, the remainder hour will be deleted.\n"
-    allCommands += "8. /removeItems name items : Delete the items of a list.\n"
-    allCommands += "9. /changeItems oldItems . newItems : Remove old items and add the new items.\n"
+    allCommands += "1. /echo text: Returns the sent message.\n"
+    allCommands += "2. /save name items hour : Saves a list and set a remainder hour.\n"
+    allCommands += "3. /add name items : Adds items to an existing list.\n"
+    allCommands += "4. /remove name : Deletes an existing list.\n"
+    allCommands += "5. /show name : Shows a description of the list.\n"
+    allCommands += "6. /showAll : Shows all list's names.\n"
+    allCommands += "7. /changeName oldName newtName : Changes the name of a created list.\n"
+    allCommands += "8. /changeHour name hour : Changes the remainder hour of a created list. If the new hour is = 0, the remainder hour will be deleted.\n"
+    allCommands += "9. /removeItems name items : Deletes the items of a list.\n"
+    allCommands += "10. /changeItems oldItems . newItems : Removes old items and add the new items.\n"
     update.message.reply_text(allCommands)
 
 def add(update, context):
@@ -47,7 +49,18 @@ def remove(update, context):
     pass
 
 def show(update, context):
-    update.message.reply_text([item for item in items if item.name == context.args[0]][0].showList())
+    try:
+        #document = mongo.db.itemsList.find({"_id": update.message.chat.id, "lists": [{"name": context.args[0]}]})
+        document = mongo.db.itemsList.find({"_id": update.message.chat.id})
+        message = "Does not exist a list with this name!"
+        for value in document.next().get("lists"):
+            if value["name"] == context.args[0]:
+                message = ItemsList(value["name"], " ".join(value["items"]), value["hour"]).showList()
+                break
+        update.message.reply_text(message)
+    except StopIteration as err:
+        print("StopIteration error:", err, "-- rewinding Cursor object.")
+        document.rewind()
 
 def main():
     updater = Updater(configuration.token, use_context=True)
