@@ -62,6 +62,18 @@ def show(update, context):
         print("StopIteration error:", err, "-- rewinding Cursor object.")
         document.rewind()
 
+def showAll(update, context):
+    try:
+        document = mongo.db.itemsList.find({"_id": update.message.chat.id})
+        message = ""
+        for value in document.next().get("lists"):
+                message += ItemsList(value["name"], " ".join(value["items"]), value["hour"]).showList() + '\n'
+        if message == "": update.message.reply_text("You don't have lists for now, create one!")
+        else: update.message.reply_text(message)
+    except StopIteration as err:
+        print("StopIteration error:", err, "-- rewinding Cursor object.")
+        document.rewind()
+
 def main():
     updater = Updater(configuration.token, use_context=True)
     dp = updater.dispatcher
@@ -71,6 +83,7 @@ def main():
     dp.add_handler(CommandHandler("add", add))
     dp.add_handler(CommandHandler("remove", remove))
     dp.add_handler(CommandHandler("show", show))
+    dp.add_handler(CommandHandler("showAll", showAll))
     dp.add_handler(MessageHandler(Filters.text, echo))
     updater.start_polling()
     updater.idle()
