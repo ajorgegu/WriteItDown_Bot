@@ -25,7 +25,7 @@ def save(update, context):
         document.rewind()
 
 def echo(update, context):
-    if not context.args == None or len(context.args) == 0: update.message.reply_text(" ".join(update.message.text.split("/echo")))
+    if not (context.args == None or len(context.args) == 0): update.message.reply_text(" ".join(update.message.text.split("/echo")))
     else: update.message.reply_text("Don't be shy, send anything! 😛")
 
 def help(update, context):
@@ -67,9 +67,9 @@ def showAll(update, context):
         document = mongo.db.itemsList.find({"_id": update.message.chat.id})
         message = ""
         for value in document.next().get("lists"):
-                message += ItemsList(value["name"], " ".join(value["items"]), value["hour"]).showList() + '\n'
+                message += f"- {value['name']} \n"
         if message == "": update.message.reply_text("You don't have lists for now, create one!")
-        else: update.message.reply_text(message)
+        else: update.message.reply_text(f"All your lists are as follows:\n\n{message}")
     except StopIteration as err:
         print("StopIteration error:", err, "-- rewinding Cursor object.")
         document.rewind()
