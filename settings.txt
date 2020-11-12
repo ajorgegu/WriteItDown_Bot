@@ -1,0 +1,2 @@
+TOKEN=1413728744:AAFOqecadjAmJo0fUGRh37qCj9-KupcEfG0
+URL=https://api.telegram.org/bot
