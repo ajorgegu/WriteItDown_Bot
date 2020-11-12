@@ -8,4 +8,4 @@ class ItemsList:
     def showList(self):
         itemsInLines = lambda items: '\n'.join(items)
         itemsToShow = itemsInLines(self.items)
-        return f"Lista {self.name}:\nItems--> {itemsToShow}\nRecordatorio--> {self.hour}"
+        return f"List '{self.name}'\n--------------\nItems: {itemsToShow}\nHour: {self.hour}"

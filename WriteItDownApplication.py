@@ -3,7 +3,7 @@ import requests, json
 from ItemsList import ItemsList
 from BotConfiguration import BotConfiguration
 
-items= []
+items = []
 configuration = BotConfiguration()
 
 def getMessages():
@@ -19,7 +19,8 @@ def save(update, context):
     itemList = ItemsList(context.args[0], context.args[1], context.args[2])
     items.append(itemList)
     itemList.showList()
-    update.message.reply_text(itemList.showList())
+    message = "Saved list!\n\n" + itemList.showList()
+    update.message.reply_text(message)
 
 def echo(update, context):
     print(context.args)
@@ -46,7 +47,7 @@ def remove(update, context):
     pass
 
 def show(update, context):
-    pass
+    update.message.reply_text([item for item in items if item.name == context.args[0]][0].showList())
 
 def main():
     updater = Updater(configuration.token, use_context=True)
