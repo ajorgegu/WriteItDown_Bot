@@ -60,13 +60,19 @@ def help(update, context):
     
 def add(update, context):
     logMethod("/add", context)
-    pass
+    if not len(context.args) == 2: invalidCommandMessage(update)
+    else:
+        document = mongo.db.itemsList.find({"_id": update.message.chat.id, "lists.name": context.args[0]})
+        if len(list(document)) > 0:
+            document.rewind()
+            mongo.db.itemsList.update_one({"_id": update.message.chat.id, "lists.name": context.args[0]}, {"$set": {"lists.items": f"{document.next().get('lists.items')} {context.args[1]}"}})
+            update.message.reply_text("Added items to the list!")
+        else:  update.message.reply_text("You don't have any list with this name! 😔")
 
 def remove(update, context):
     logMethod("/remove", context)
     if not len(context.args) == 1: invalidCommandMessage(update)
     else:
-        #document = mongo.db.itemsList.find({"_id": update.message.chat.id, "lists": [{"name": context.args[0]}]})
         mongo.db.itemsList.update_one({"_id": update.message.chat.id},  { "$pull" : {"lists": { "name" : context.args[0]}}})
         update.message.reply_text("Done!")
 
