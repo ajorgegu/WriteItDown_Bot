@@ -57,7 +57,7 @@ def help(update, context):
     allCommands += "9. /removeItems name items : Deletes the items of a list.\n"
     allCommands += "10. /changeItems oldItems . newItems : Removes old items and add the new items.\n"
     update.message.reply_text(allCommands)
-
+    
 def add(update, context):
     logMethod("/add", context)
     pass
