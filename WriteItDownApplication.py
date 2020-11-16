@@ -18,14 +18,17 @@ def save(update, context):
     else:
         totalArgs = len(context.args)
         itemList = ItemsList(context.args[0], context.args[1:totalArgs-1], context.args[totalArgs - 1])
+        message = "Saved list!\n\n" + itemList.showList()
         document = mongo.db.itemsList.find({"_id": update.message.chat.id})
         try:
             if len(list(document)) == 0:
                 document.rewind()  
                 mongo.db.itemsList.insert_one({"_id": update.message.chat.id, "lists": [itemList.__dict__]})
             else:  
-                mongo.db.itemsList.update_one({"_id": update.message.chat.id}, {"$push": {"lists": itemList.__dict__ }})
-            message = "Saved list!\n\n" + itemList.showList()
+                document = mongo.db.itemsList.find({"_id": update.message.chat.id},{"lists": {"$elemMatch" : { "name": context.args[0]} }})
+                if len(list(document)) != 0:
+                    mongo.db.itemsList.update_one({"_id": update.message.chat.id}, {"$push": {"lists": itemList.__dict__ }})
+                else: message = "You already have a list with this name!"
             update.message.reply_text(message)
         except StopIteration as err:
             print("StopIteration error:", err, "-- rewinding Cursor object.")
@@ -62,10 +65,10 @@ def add(update, context):
     logMethod("/add", context)
     if not len(context.args) == 2: invalidCommandMessage(update)
     else:
-        document = mongo.db.itemsList.find({"_id": update.message.chat.id, "lists.name": context.args[0]})
+        document = mongo.db.itemsList.find({"_id": update.message.chat.id},{"lists": {"$elemMatch" : { "name": context.args[0]} }})
         if len(list(document)) > 0:
             document.rewind()
-            mongo.db.itemsList.update_one({"_id": update.message.chat.id, "lists.name": context.args[0]}, {"$set": {"lists.items": f"{document.next().get('lists.items')} {context.args[1]}"}})
+            mongo.db.itemsList.update_one({"_id": update.message.chat.id},{"lists": {"$elemMatch" : { "name": context.args[0]}}}, {"$push": {"lists": { "items": {f"{context.args[1]}"}}}})
             update.message.reply_text("Added items to the list!")
         else:  update.message.reply_text("You don't have any list with this name! 😔")
 
@@ -81,15 +84,13 @@ def show(update, context):
     if not len(context.args) == 1: invalidCommandMessage(update)
     else:
         try:
-            #document = mongo.db.itemsList.find({"_id": update.message.chat.id, "lists": [{"name": context.args[0]}]})
-            document = mongo.db.itemsList.find({"_id": update.message.chat.id})
+            document = mongo.db.itemsList.find({"_id": update.message.chat.id}, {"lists": {"$elemMatch" : { "name": context.args[0]} }})
             message = ""
             if len(list(document)) > 0:
                 document.rewind()
-                for value in document.next().get("lists"):
-                    if value["name"] == context.args[0]:
-                        message = ItemsList(value["name"], [value["items"]], value["hour"]).showList()
-                        break
+                itemList = document.next()
+                itemList = itemList["lists"][0]
+                message = ItemsList(itemList.get("name"), [itemList.get("items")], itemList.get("hour")).showList()
                 update.message.reply_text(message)
             else: update.message.reply_text("Does not exist a list with this name!")
         except StopIteration as err:
@@ -105,7 +106,7 @@ def showAll(update, context):
         if len(list(document)) > 0:
             document.rewind()
             for value in document.next().get("lists"):
-                    message += ItemsList(value["name"], [value["items"]], value["hour"]).showList() + '\n'
+                    message += ItemsList(value["name"], [value["items"]], value["hour"]).showList() + '\n\n\n'
             update.message.reply_text(message)
         else: update.message.reply_text("You don't have lists for now, create one!")
     except StopIteration as err:
