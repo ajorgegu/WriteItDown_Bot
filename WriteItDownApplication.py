@@ -65,10 +65,10 @@ def add(update, context):
     logMethod("/add", context)
     if not len(context.args) == 2: invalidCommandMessage(update)
     else:
-        document = mongo.db.itemsList.find({"_id": update.message.chat.id},{"lists": {"$elemMatch" : { "name": context.args[0]} }})
+        document = mongo.db.itemsList.find({"_id": update.message.chat.id}, {"lists": {"$elemMatch": {"name": context.args[0]} }})
         if len(list(document)) > 0:
             document.rewind()
-            mongo.db.itemsList.update_one({"_id": update.message.chat.id},{"lists": {"$elemMatch" : { "name": context.args[0]}}}, {"$push": {"lists": { "items": {f"{context.args[1]}"}}}})
+            mongo.db.itemsList.update_one({"_id": update.message.chat.id}, {"$set": {"lists.$[elem].items": f"{document.next()['lists'][0].get('items')} {context.args[1]}"}}, array_filters=[{"elem.name": context.args[0]}])
             update.message.reply_text("Added items to the list!")
         else:  update.message.reply_text("You don't have any list with this name! 😔")
 
