@@ -1,5 +1,0 @@
-TOKEN=1413728744:AAH0Zpx0ro69ez4xPSVkqVc1jeqJoKM2RxE
-URL=https://api.telegram.org/bot
-MONGO=mongodb+srv://piporro:<password>@machine1.7snpw.mongodb.net/<dbname>?retryWrites=true&w=majority
-MONGOPASSWORD=databasepiporro
-MONGODBNAME=writeitdown
