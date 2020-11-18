@@ -1,12 +1,11 @@
 from telegram.ext import Updater, InlineQueryHandler, CommandHandler, MessageHandler, Filters
 from pprint import pprint
-import requests, json
+import requests, json, re, logging, datetime
 from model.ItemsList import ItemsList
 from configuration.BotConfiguration import BotConfiguration
 from configuration.MongoDbConfiguration import MongoDbConfiguration
 from utils.DictToObject import DictToObject
-import logging
-import re
+
 
 FORMAT = '%(asctime)-15s %(message)s'
 logging.basicConfig(format=FORMAT, level=logging.INFO)
@@ -20,35 +19,43 @@ def save(update, context):
         invalidCommandMessage(update)
     else: 
         if not checkListName(context.args[0]):
-            totalArgs = len(context.args)
-            itemList = ItemsList(context.args[0], context.args[1:totalArgs-1], context.args[totalArgs - 1])
-            message = "Saved list!\n\n" + itemList.showList()
-            document = mongo.db.itemsList.find({"_id": update.message.chat.id})
-            try:
-                if len(list(document)) == 0:
-                    message = "First of all set your timezone please!"
-                # mongo.db.itemsList.insert_one({"_id": update.message.chat.id, "lists": [itemList.__dict__]})
-                else:  
-                    document = mongo.db.itemsList.find({"_id": update.message.chat.id},{"lists": {"$elemMatch" : { "name": context.args[0]} }})
-                    if len(list(document)) != 0:
-                        mongo.db.itemsList.update_one({"_id": update.message.chat.id}, {"$push": {"lists": itemList.__dict__ }})
-                    else: message = "You already have a list with this name!"
-                update.message.reply_text(message)
-            except StopIteration as err:
-                print("StopIteration error:", err, "-- rewinding Cursor object.")
-                update.message.reply_text("Internal server error, sorry for the incoveniences")
+            print(" ".join(context.args[len(context.args)-2:]))  
+            if checkCorrectDatetime(" ".join(context.args[len(context.args)-2:])):
+                try:
+                    format = "%Y-%m-%d %H-%M-%S"
+                    datetime.datetime.strptime(" ".join(context.args[len(context.args)-2:]), format)
+                    totalArgs = len(context.args)
+                    itemList = ItemsList(context.args[0], context.args[1:totalArgs-2], " ".join(context.args[totalArgs - 2:]))
+                    message = "Saved list!\n\n" + itemList.showList()
+                    document = mongo.db.itemsList.find({"_id": update.message.chat.id})
+                    if len(list(document)) == 0:
+                        message = "First of all set your timezone please!"
+                    # mongo.db.itemsList.insert_one({"_id": update.message.chat.id, "lists": [itemList.__dict__]})
+                    else:  
+                        document = mongo.db.itemsList.find({"_id": update.message.chat.id},{"lists": {"$elemMatch" : { "name": context.args[0]} }})
+                        if len(list(document)) != 0:
+                            mongo.db.itemsList.update_one({"_id": update.message.chat.id}, {"$push": {"lists": itemList.__dict__ }})
+                        else: message = "You already have a list with this name!"
+                    update.message.reply_text(message)
+                except StopIteration as err:
+                    print("StopIteration error:", err, "-- rewinding Cursor object.")
+                    update.message.reply_text("Internal server error, sorry for the incoveniences")
+                except ValueError:
+                    print("Incorrect format datetime")
+                    update.message.reply_text("A The setted datetime is not correct. Please insert a correct datetime.")
+            else: update.message.reply_text("B The setted datetime is not correct. Please insert a correct datetime.")
         else:
             update.message.reply_text("Invalid list's name, the name only can have letters, numbers and '_'")
     
 def add(update, context):
     logMethod("/add", update.message.chat.id, context)
-    if not len(context.args) == 2: invalidCommandMessage(update)
+    if len(context.args) < 2: invalidCommandMessage(update)
     else:
         try:
             document = mongo.db.itemsList.find({"_id": update.message.chat.id}, {"lists": {"$elemMatch": {"name": context.args[0]} }})
             if len(list(document)) > 0:
                 document.rewind()
-                mongo.db.itemsList.update_one({"_id": update.message.chat.id}, {"$set": {"lists.$[elem].items": f"{document.next()['lists'][0].get('items')} {context.args[1]}"}}, array_filters=[{"elem.name": context.args[0]}])
+                mongo.db.itemsList.update_one({"_id": update.message.chat.id}, {"$set": {"lists.$[elem].items": f"{document.next()['lists'][0].get('items')} {' '.join(context.args[1:])}"}}, array_filters=[{"elem.name": context.args[0]}])
                 update.message.reply_text("Added items to the list!")
             else:  update.message.reply_text("You don't have any list with this name! 😔")
         except StopIteration as err:
@@ -189,18 +196,20 @@ def removeItems(update, context):
             update.message.reply_text("Internal server error, sorry for the incoveniences")
 
 def changeItems(update, context):
-    logMethod("/removeItems", update.message.chat.id, context)
-    if not len(context.args) < 4 : invalidCommandMessage(update)
+    logMethod("/changeItems", update.message.chat.id, context)
+    print(len(context.args))
+    if len(context.args) < 4 : invalidCommandMessage(update)
     else:
         try:
             document = mongo.db.itemsList.find({"_id": update.message.chat.id}, {"lists": {"$elemMatch": {"name": context.args[0]} }})
             if len(list(document)) > 0:
                 document.rewind()
                 oldItems = document.next().get("lists")[0].get("items").split(" ")
-                finalItems = [item for item in oldItems if item not in context.args[1:]]
+                finalItems = [item for item in oldItems if item not in context.args[1]]
+                finalItems.append(context.args[3])
                 finalItems = " ".join(finalItems)
                 mongo.db.itemsList.update_one({"_id": update.message.chat.id}, {"$set": {"lists.$[elem].items": finalItems}}, array_filters=[{"elem.name": context.args[0]}])
-                update.message.reply_text("Removed items!")
+                update.message.reply_text("Items have been changed!")
             else:  update.message.reply_text("You don't have any list with this name! 😔")
         except StopIteration as err:
             print("StopIteration error:", err, "-- rewinding Cursor object.")
@@ -241,8 +250,13 @@ def invalidCommandMessage(update):
 def checkListName(name):
     return re.findall("\\W", name)
 
+def checkCorrectDatetime(datetime):
+    return re.findall("(\\d{4})-(\\d{2})-(\\d{2}) (\\d{2}):(\\d{2}):(\\d{2})", datetime)
+
 def logMethod(method, idChat, context):
-    log.info(f"User {idChat} >> Command {method} {' '.join(context.args)}")
+    if context.args != None:
+        log.info(f"User {idChat} >> Command {method} {' '.join(context.args)}")
+    else: log.info(f"User {idChat} >> Command {method}") 
 
 def main():
     updater = Updater(configuration.token, use_context=True)
@@ -259,7 +273,7 @@ def main():
     dp.add_handler(CommandHandler("changeName", changeName))
     dp.add_handler(CommandHandler("changeHour", changeHour))
     dp.add_handler(CommandHandler("removeItems", removeItems))
-    dp.add_handler(CommandHandler("changeItems", removeItems))
+    dp.add_handler(CommandHandler("changeItems", changeItems))
     dp.add_handler(MessageHandler(Filters.text, echo))
     updater.start_polling()
     updater.idle()
