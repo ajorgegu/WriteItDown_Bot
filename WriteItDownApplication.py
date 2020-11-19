@@ -14,7 +14,6 @@ log = logging
 configuration = BotConfiguration()
 mongo = MongoDbConfiguration()
 timezone = Timezone()
-print(timezone.showTimezones())
 
 def save(update, context):
     logMethod("/save", update.message.chat.id, context)
@@ -237,6 +236,17 @@ def changeItems(update, context):
             print("StopIteration error:", err, "-- rewinding Cursor object.")
             update.message.reply_text("Internal server error, sorry for the incoveniences")
 
+def getTimezones(update, context):
+    logMethod("/getTimezones", update.message.chat.id, context)
+    if(len(context.args) < 1): 
+        invalidCommandMessage(update)
+    else:
+        update.message.reply_text()
+
+def zones(update, context):
+     logMethod("/zones", update.message.chat.id, context) 
+     update.message.reply_text()
+
 def echo(update, context):
     logMethod("/echo", update.message.chat.id, context)
     update.message.reply_text("Welcome to WriteItDown Bot! 😈")
@@ -264,6 +274,8 @@ def help(update, context):
     allCommands += "10. /removeItems name items : Deletes the items of a list.\n"
     allCommands += "11. /changeItems list oldItems . newItems : Removes old items and add the new items.\n"
     allCommands += "12. /showTimezone: Shows your setted timezone.\n"
+    allCommands += "13. /zones: Shows your all zones.\n"
+    allCommands += "14. /getTimezones zone: Shows your all allowed timezones in selected zone.\n"
     update.message.reply_text(allCommands)
 
 def invalidCommandMessage(update):
@@ -295,6 +307,7 @@ def main():
     dp.add_handler(CommandHandler("changeName", changeName))
     dp.add_handler(CommandHandler("changeHour", changeHour))
     dp.add_handler(CommandHandler("removeItems", removeItems))
+    dp.add_handler(CommandHandler("changeItems", changeItems))
     dp.add_handler(CommandHandler("changeItems", changeItems))
     dp.add_handler(MessageHandler(Filters.text, echo))
     updater.start_polling()
