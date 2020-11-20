@@ -1,12 +1,12 @@
 from telegram.ext import Updater, InlineQueryHandler, CommandHandler, MessageHandler, Filters
 from pprint import pprint
-import requests, json, re, logging, datetime
+import requests, json, re, logging, datetime, pytz
 from model.ItemsList import ItemsList
 from configuration.BotConfiguration import BotConfiguration
 from configuration.MongoDbConfiguration import MongoDbConfiguration
 from utils.DictToObject import DictToObject
 from model.Timezone import Timezone
-
+from timezonefinder import TimezoneFinder
 
 FORMAT = '%(asctime)-15s %(message)s'
 logging.basicConfig(format=FORMAT, level=logging.INFO)
@@ -14,6 +14,7 @@ log = logging
 configuration = BotConfiguration()
 mongo = MongoDbConfiguration()
 timezone = Timezone()
+calledTimezone = dict()
 
 def save(update, context):
     logMethod("/save", update.message.chat.id, context)
@@ -28,18 +29,22 @@ def save(update, context):
                     formatDateAndHour = "%Y-%m-%d %H:%M:%S"
                     datetime.datetime.strptime(context.args[len(context.args)-2], formatDate)
                     datetime.datetime.strptime(context.args[len(context.args)-1], formatHour)
-                    time = datetime.datetime.strptime(" ".join(context.args[len(context.args)-2:]), formatDateAndHour)
+                    settedHour = calculateSettedHour(update.message.chat.id, " ".join(context.args[len(context.args)-2:]))
+                    time = datetime.datetime.strptime(settedHour, formatDateAndHour)
                     if time > datetime.datetime.today():
+                        time = str(time)
+                        time = time[:len(time)-6]
                         totalArgs = len(context.args)
-                        itemList = ItemsList(context.args[0], context.args[1:totalArgs-2], " ".join(context.args[totalArgs - 2:]))
-                        message = "Saved list!\n\n" + itemList.showList()
+                        itemToSave = ItemsList(context.args[0], context.args[1:totalArgs-2], time)
+                        itemListToShow = ItemsList(context.args[0], context.args[1:totalArgs-2], " ".join(context.args[totalArgs-2:]))
+                        message = "Saved list!\n\n" + itemListToShow.showList()
                         document = mongo.db.itemsList.find({"_id": update.message.chat.id})
                         if len(list(document)) == 0:
                             message = "First of all set your timezone please!"
                         else:  
                             document = mongo.db.itemsList.find({"_id": update.message.chat.id},{"lists": {"$elemMatch" : { "name": context.args[0]} }})
                             if document.next().get("lists") == None:
-                                mongo.db.itemsList.update_one({"_id": update.message.chat.id}, {"$push": {"lists": itemList.__dict__ }})
+                                mongo.db.itemsList.update_one({"_id": update.message.chat.id}, {"$push": {"lists": itemToSave.__dict__ }})
                             else: message = "You already have a list with this name!"
                         update.message.reply_text(message)
                     else: update.message.reply_text("Incorrect datetime. This datetime is before this moment!")
@@ -86,7 +91,8 @@ def show(update, context):
                 document.rewind()
                 itemList = document.next()
                 itemList = itemList["lists"][0]
-                message = ItemsList(itemList.get("name"), [itemList.get("items")], itemList.get("hour")).showList()
+                gettedHour = calculateGettedHour(update.message.chat.id, itemList.get("hour"))
+                message = ItemsList(itemList.get("name"), [itemList.get("items")], gettedHour).showList()
                 update.message.reply_text(message)
             else: update.message.reply_text("Does not exist a list with this name!")
         except StopIteration as err:
@@ -99,37 +105,49 @@ def showAll(update, context):
     try:
         document = mongo.db.itemsList.find({"_id": update.message.chat.id})
         message = ""
-        print(document.next().get("lists"))
         document.rewind()
         if len(document.next().get("lists")) != 0:
             document.rewind()
             for value in document.next().get("lists"):
-                    message += ItemsList(value["name"], [value["items"]], value["hour"]).showList() + '\n\n\n'
+                print(value["hour"])
+                gettedHour = calculateGettedHour(update.message.chat.id, value["hour"])
+                message += ItemsList(value["name"], [value["items"]], gettedHour).showList() + '\n\n'
             update.message.reply_text(message)
         else: update.message.reply_text("You don't have lists for now, create one!")
     except StopIteration as err:
         print("StopIteration error:", err, "-- rewinding Cursor object.")
         update.message.reply_text("Internal server error, sorry for the incoveniences")
 
-def setTimezone(update, context):
+def timezoneMessage(update, context):
     logMethod("/setTimezone", update.message.chat.id, context)
-    if not len(context.args) == 1: 
+    if len(context.args) != 0:
         invalidCommandMessage(update)
     else:
-        message = ""
+        update.message.reply_text("Send me your location! Here show you an example about how to share it")
+        update.message.reply_animation("BQACAgQAAxkDAAIEP1-3vPkWhmlD19MAASJRK3KzhBKAZgAC8AkAAoOFwFHr1Vax3v-7XR4E")
+        calledTimezone[update.message.chat.id] = True
+
+def setTimezone(update, context):
+    message = ""
+    if calledTimezone.get(update.message.chat.id, False):
         try:
+            tf = TimezoneFinder()
+            timezone = tf.timezone_at(lng = update.message.location.longitude, lat = update.message.location.latitude)
             document = mongo.db.itemsList.find({"_id": update.message.chat.id})
             if len(list(document)) == 1:
                 document.rewind()
-                mongo.db.itemsList.update_one({"_id": update.message.chat.id}, {"$set": {"timezone": context.args[0]}})
-                message = f"Timezone updated to {context.args[0]}!"
+                mongo.db.itemsList.update_one({"_id": update.message.chat.id}, {"$set": {"timezone": timezone}})
+                message = f"Timezone updated to {timezone}!"
             else:
-                mongo.db.itemsList.insert_one({"_id": update.message.chat.id, "lists": [], "timezone": context.args[0]})
+                mongo.db.itemsList.insert_one({"_id": update.message.chat.id, "lists": [], "timezone": timezone})
                 message = f"Timezone setted!"
             update.message.reply_text(message)
+            calledTimezone[update.message.chat.id] = False
         except StopIteration as err:
+            calledTimezone[update.message.chat.id] = False
             print("StopIteration error:", err, "-- rewinding Cursor object.")
             update.message.reply_text("Internal server error, sorry for the incoveniences")
+
 
 def showTimezone(update,context):
     logMethod("/showTimezone", update.message.chat.id, context)
@@ -180,12 +198,13 @@ def changeHour(update, context):
                 formatDateAndHour = "%Y-%m-%d %H:%M:%S"
                 datetime.datetime.strptime(context.args[1], formatDate)
                 datetime.datetime.strptime(context.args[2], formatHour)
-                time = datetime.datetime.strptime(" ".join(context.args[1:]), formatDateAndHour)
+                settedTime = calculateSettedHour(update.message.chat.id, " ".join(context.args[1:]))
+                time = datetime.datetime.strptime(settedTime, formatDateAndHour)
                 if time > datetime.datetime.today():
                         document = mongo.db.itemsList.find({"_id": update.message.chat.id}, {"lists": {"$elemMatch": {"name": context.args[0]}}})
                         if document.next().get("lists") != None:
                             document.rewind()
-                            mongo.db.itemsList.update_one({"_id": update.message.chat.id}, {"$set": {"lists.$[elem].hour": context.args[1:]}}, array_filters=[{"elem.name": context.args[0]}])
+                            mongo.db.itemsList.update_one({"_id": update.message.chat.id}, {"$set": {"lists.$[elem].hour": settedTime}}, array_filters=[{"elem.name": context.args[0]}])
                             update.message.reply_text(f"List's reminder hour changed to '{context.args[1]}'")
                         else:
                             update.message.reply_text(f"You don't have any list with name '{context.args[0]}'! 😔")
@@ -236,17 +255,6 @@ def changeItems(update, context):
             print("StopIteration error:", err, "-- rewinding Cursor object.")
             update.message.reply_text("Internal server error, sorry for the incoveniences")
 
-def getTimezones(update, context):
-    logMethod("/getTimezones", update.message.chat.id, context)
-    if(len(context.args) < 1): 
-        invalidCommandMessage(update)
-    else:
-        update.message.reply_text()
-
-def zones(update, context):
-     logMethod("/zones", update.message.chat.id, context) 
-     update.message.reply_text()
-
 def echo(update, context):
     logMethod("/echo", update.message.chat.id, context)
     update.message.reply_text("Welcome to WriteItDown Bot! 😈")
@@ -263,7 +271,7 @@ def help(update, context):
     logMethod("/help", update.message.chat.id, context)
     allCommands = f"List of commands: 😎\n\n"
     allCommands += "1. /repeat text: Returns the sent message.\n"
-    allCommands += "2. /timezone timezone: Sets your timezone. Example: Europe/Madrid\n"
+    allCommands += "2. /timezone: Sets your timezone using your ubication. Example: Europe/Madrid\n"
     allCommands += "3. /save name items hour : Saves a list and set a remainder hour.\n"
     allCommands += "4. /add name items : Adds items to an existing list.\n"
     allCommands += "5. /remove name : Deletes an existing list.\n"
@@ -274,8 +282,6 @@ def help(update, context):
     allCommands += "10. /removeItems name items : Deletes the items of a list.\n"
     allCommands += "11. /changeItems list oldItems . newItems : Removes old items and add the new items.\n"
     allCommands += "12. /showTimezone: Shows your setted timezone.\n"
-    allCommands += "13. /zones: Shows your all zones.\n"
-    allCommands += "14. /getTimezones zone: Shows your all allowed timezones in selected zone.\n"
     update.message.reply_text(allCommands)
 
 def invalidCommandMessage(update):
@@ -286,6 +292,25 @@ def checkListName(name):
 
 def checkCorrectDatetime(datetime):
     return re.findall("(\\d{4})-(\\d{2})-(\\d{2}) (\\d{2}):(\\d{2}):(\\d{2})", datetime)
+
+def calculateSettedHour(idUser, date):
+    document = mongo.db.itemsList.find({"_id": idUser})
+    timezone = document.next().get("timezone")
+    userTimezone = pytz.timezone(timezone)
+    esp = pytz.timezone('Europe/Madrid')
+    userTimezone = userTimezone.localize(date)
+    hourSpain = userTimezone.astimezone(esp)
+    return hourSpain
+
+def calculateGettedHour(idUser, date):
+    document = mongo.db.itemsList.find({"_id": idUser})
+    timezone = document.next().get("timezone")
+    userTimezone = pytz.timezone(timezone)
+    esp = pytz.timezone('Europe/Madrid')
+    date = datetime.datetime.strptime(date, "%Y-%m-%d %H:%M:%S")
+    esp = esp.localize(date)
+    userHour = esp.astimezone(userTimezone)
+    return userHour
 
 def logMethod(method, idChat, context):
     if context.args != None:
@@ -302,14 +327,14 @@ def main():
     dp.add_handler(CommandHandler("remove", remove))
     dp.add_handler(CommandHandler("show", show))
     dp.add_handler(CommandHandler("showAll", showAll))
-    dp.add_handler(CommandHandler("timezone", setTimezone))
+    dp.add_handler(CommandHandler("timezone", timezoneMessage))
     dp.add_handler(CommandHandler("showTimezone", showTimezone))
     dp.add_handler(CommandHandler("changeName", changeName))
     dp.add_handler(CommandHandler("changeHour", changeHour))
     dp.add_handler(CommandHandler("removeItems", removeItems))
     dp.add_handler(CommandHandler("changeItems", changeItems))
-    dp.add_handler(CommandHandler("changeItems", changeItems))
     dp.add_handler(MessageHandler(Filters.text, echo))
+    dp.add_handler(MessageHandler(Filters.location, setTimezone))
     updater.start_polling()
     updater.idle()
 
