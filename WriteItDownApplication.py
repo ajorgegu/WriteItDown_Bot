@@ -1,23 +1,25 @@
 from telegram.ext import Updater, InlineQueryHandler, CommandHandler, MessageHandler, Filters
 from pprint import pprint
-import requests, json, re, logging, datetime, pytz
+import requests, json, re, logging, datetime, pytz, sys
 from model.ItemsList import ItemsList
 from configuration.BotConfiguration import BotConfiguration
 from configuration.MongoDbConfiguration import MongoDbConfiguration
 from utils.DictToObject import DictToObject
 from model.Timezone import Timezone
 from timezonefinder import TimezoneFinder
+from crontab import CronTab
 
 FORMAT = '%(asctime)-15s %(message)s'
 logging.basicConfig(format=FORMAT, level=logging.INFO)
 log = logging
 configuration = BotConfiguration()
 mongo = MongoDbConfiguration()
-timezone = Timezone()
 calledTimezone = dict()
 formatDate = "%Y-%m-%d"
 formatHour = "%H:%M:%S"
 formatDateAndHour = "%Y-%m-%d %H:%M:%S"
+bot = None
+cron = CronTab(user=True)
 
 def save(update, context):
     logMethod("/save", update.message.chat.id, context)
@@ -34,7 +36,7 @@ def save(update, context):
                     time = calculateSettedHour(update.message.chat.id, formatedDate)
                     timeWithoutOffset = time.replace(tzinfo=None)
                     if timeWithoutOffset > datetime.datetime.today():
-                        itemToSave = ItemsList(context.args[0], context.args[1:totalArgs-2], str(time))
+                        itemToSave = ItemsList(context.args[0], context.args[1:totalArgs-2], str(timeWithoutOffset))
                         itemListToShow = ItemsList(context.args[0], context.args[1:totalArgs-2], " ".join(context.args[totalArgs-2:]))
                         message = "Saved list!\n\n" + itemListToShow.showList()
                         document = mongo.db.itemsList.find({"_id": update.message.chat.id})
@@ -44,6 +46,7 @@ def save(update, context):
                             document = mongo.db.itemsList.find({"_id": update.message.chat.id},{"lists": {"$elemMatch" : { "name": context.args[0]} }})
                             if document.next().get("lists") == None:
                                 mongo.db.itemsList.update_one({"_id": update.message.chat.id}, {"$push": {"lists": itemToSave.__dict__ }})
+                                createJob(itemToSave, update.message.chat.id)
                             else: message = "You already have a list with this name!"
                         update.message.reply_text(message)
                     else: update.message.reply_text("Incorrect datetime. This datetime is before this moment!")
@@ -52,8 +55,8 @@ def save(update, context):
                     update.message.reply_text("Internal server error, sorry for the incoveniences")
                 except ValueError:
                     print("Incorrect format datetime")
-                    update.message.reply_text("The setted datetime is not correct. Please insert a correct datetime.")
-            else: update.message.reply_text("The setted datetime is not correct. Please insert a correct datetime.")
+                    update.message.reply_text("The setted datetime is not correct. Please insert a correct datetime with format YYYY-mm-dd HH:MM:SS.")
+            else: update.message.reply_text("The setted datetime is not correct. Please insert a correct datetime YYYY-mm-dd HH:MM:SS.")
         else:
             update.message.reply_text("Invalid list's name, the name only can have letters, numbers and '_'")
     
@@ -76,8 +79,11 @@ def remove(update, context):
     logMethod("/remove", update.message.chat.id, context)
     if not len(context.args) == 1: invalidCommandMessage(update)
     else:
-        mongo.db.itemsList.update_one({"_id": update.message.chat.id},  { "$pull" : {"lists": { "name" : context.args[0]}}})
-        update.message.reply_text("Done!")
+        document = mongo.db.itemsList.update_one({"_id": update.message.chat.id},  { "$pull" : {"lists": { "name" : context.args[0]}}})
+        if document.modified_count == 1:
+            removeJob(update.message.chat.id, context.args[0])
+            update.message.reply_text("Done!")
+        else: update.message.reply_text(f"You don't have any list with name '{context.args[0]}'")
 
 def show(update, context):
     logMethod("/show", update.message.chat.id, context)
@@ -201,6 +207,7 @@ def changeHour(update, context):
                         if document.next().get("lists") != None:
                             document.rewind()
                             mongo.db.itemsList.update_one({"_id": update.message.chat.id}, {"$set": {"lists.$[elem].hour": str(time)}}, array_filters=[{"elem.name": context.args[0]}])
+                            changeJob(context.args[0], str(time), update.message.chat.id)
                             update.message.reply_text(f"List's reminder hour changed to '{' '.join(context.args[1:])}'")
                         else:
                             update.message.reply_text(f"You don't have any list with name '{context.args[0]}'! 😔")
@@ -268,13 +275,13 @@ def help(update, context):
     allCommands = f"List of commands: 😎\n\n"
     allCommands += "1. /repeat text: Returns the sent message.\n"
     allCommands += "2. /timezone: Sets your timezone using your ubication. Example: Europe/Madrid\n"
-    allCommands += "3. /save name items hour : Saves a list and set a remainder hour.\n"
+    allCommands += "3. /save name items hour : Saves a list and set a reminder hour.\n"
     allCommands += "4. /add name items : Adds items to an existing list.\n"
     allCommands += "5. /remove name : Deletes an existing list.\n"
     allCommands += "6. /show name : Shows a description of the list.\n"
     allCommands += "7. /showAll : Shows all list's names.\n"
     allCommands += "8. /changeName oldName newName : Changes the name of a created list.\n"
-    allCommands += "9. /changeHour name hour : Changes the remainder hour of a created list. If the new hour is = 0, the remainder hour will be deleted.\n"
+    allCommands += "9. /changeHour name hour : Changes the reminder hour of a created list. If the new hour is = 0, the reminder hour will be deleted.\n"
     allCommands += "10. /removeItems name items : Deletes the items of a list.\n"
     allCommands += "11. /changeItems list oldItems . newItems : Removes old items and add the new items.\n"
     allCommands += "12. /showTimezone: Shows your setted timezone.\n"
@@ -313,9 +320,55 @@ def logMethod(method, idChat, context):
         log.info(f"User {idChat} >> Command {method} {' '.join(context.args)}")
     else: log.info(f"User {idChat} >> Command {method}") 
 
+def createJob(itemList, idChat):
+    datetime = itemList.hour.split(" ")
+    date = datetime[0].split("-")
+    hour = datetime[1].split(":")
+
+    job = cron.new(command=f"python3 /home/alejandro.jorge/WriteItDown_Bot/WriteItDownApplication.py 'sendReminderMessage({idChat}, \"{itemList.name}\")'")
+    job.set_comment(f"{idChat}_{itemList.name}")
+    job.setall(hour[1], hour[0], date[2], date[1], None)
+    cron.write()
+
+    for job in cron:
+        print(job)
+
+def sendReminderMessage(idChat, listName):
+    document = mongo.db.itemsList.find({"_id": idChat}, {"lists": {"$elemMatch": {"name": listName} }})
+    try:
+        year = document.next().get("lists")[0].get("hour").split(" ")[0].split("-")[0]
+        if str(datetime.datetime.today().year) == year:
+            bot.send_message(idChat, f"Reminder of list '{listName}'!")
+            removeJob(idChat, listName)
+    except StopIteration as err:
+        print("StopIteration error:", err, "-- rewinding Cursor object.")
+
+
+def changeJob(nameList, hour, idChat):
+    datetime = hour[:len(hour)-6]
+    datetime = datetime.split(" ")
+    date = datetime[0].split("-")
+    hour = datetime[1].split(":")
+    jobs = cron.find_comment(f"{idChat}_{nameList}")
+    for job in jobs:
+        job.setall(hour[1], hour[0], date[2], date[1], None)
+        cron.write()
+
+def removeJob(idChat, listName):
+    print(f"{idChat}_{listName}")
+    cron.remove_all(comment=f"{idChat}_{listName}")
+    cron.write()
+
 def main():
+    log.info(sys.argv)
     updater = Updater(configuration.token, use_context=True)
     dp = updater.dispatcher
+    global bot
+    bot = dp.bot
+    log.info("Bot: " + str(bot))
+    if len(sys.argv) > 1:
+        eval(sys.argv[1])
+        return
     dp.add_handler(CommandHandler("save", save))
     dp.add_handler(CommandHandler("repeat", repeat))
     dp.add_handler(CommandHandler("help", help))

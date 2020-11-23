@@ -1,7 +1,7 @@
 class BotConfiguration:
 
     def __init__(self):
-        settingsFile = open("settings.txt", "r")
+        settingsFile = open("/home/alejandro.jorge/WriteItDown_Bot/settings.txt", "r")
         settingsFile = settingsFile.readlines()
         for line in settingsFile:
             if line.split("=")[0] == "TOKEN": self.token = line.split("=")[1].strip()

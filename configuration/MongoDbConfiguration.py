@@ -3,7 +3,7 @@ from pymongo import MongoClient
 class MongoDbConfiguration:
 
     def __init__(self):
-        settingsFile = open("settings.txt", "r")
+        settingsFile = open("/home/alejandro.jorge/WriteItDown_Bot/settings.txt", "r")
         settingsFile = settingsFile.readlines()
         for line in settingsFile:
             if line.split("=")[0] == "MONGO": mongoUrl = "=".join(line.split("=")[1:]).strip()
