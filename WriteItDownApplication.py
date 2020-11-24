@@ -55,10 +55,10 @@ def save(update, context):
                     update.message.reply_text("Internal server error, sorry for the incoveniences")
                 except ValueError:
                     print("Incorrect format datetime")
-                    update.message.reply_text("The setted datetime is not correct. Please insert a correct datetime with format YYYY-mm-dd HH:MM:SS.")
-            else: update.message.reply_text("The setted datetime is not correct. Please insert a correct datetime YYYY-mm-dd HH:MM:SS.")
+                    update.message.reply_text("The datetime is not correct. Please insert a correct datetime with format YYYY-mm-dd HH:MM:SS.")
+            else: update.message.reply_text("The datetime is not correct. Please insert a correct datetime YYYY-mm-dd HH:MM:SS.")
         else:
-            update.message.reply_text("Invalid list's name, the name only can have letters, numbers and '_'")
+            update.message.reply_text("Invalid list name, the name only can have letters, numbers and '_'")
     
 def add(update, context):
     logMethod("/add", update.message.chat.id, context)
@@ -99,7 +99,7 @@ def show(update, context):
                 gettedHour = calculateGettedHour(update.message.chat.id, itemList.get("hour")).replace(tzinfo=None)
                 message = ItemsList(itemList.get("name"), [itemList.get("items")], gettedHour).showList()
                 update.message.reply_text(message)
-            else: update.message.reply_text("Does not exist a list with this name!")
+            else: update.message.reply_text("A list with this name does not exist!")
         except StopIteration as err:
             print("StopIteration error:", err, "-- rewinding Cursor object.")
             update.message.reply_text("Internal server error, sorry for the incoveniences")
@@ -127,7 +127,7 @@ def timezoneMessage(update, context):
     if len(context.args) != 0:
         invalidCommandMessage(update)
     else:
-        update.message.reply_text("Send me your location! Here show you an example about how to share it")
+        update.message.reply_text("Send me your location! Here is an example about how to share it")
         update.message.reply_animation("BQACAgQAAxkDAAIEP1-3vPkWhmlD19MAASJRK3KzhBKAZgAC8AkAAoOFwFHr1Vax3v-7XR4E")
         calledTimezone[update.message.chat.id] = True
 
@@ -164,7 +164,7 @@ def showTimezone(update,context):
                 document.rewind()
                 message = f"Your timezone is {document.next().get('timezone')}"
             else:
-                message = "You have not setted your timezone yet, please use /timezone command to save it."
+                message = "You have not set your timezone yet, please use /timezone command to save it."
             update.message.reply_text(message)
         except StopIteration as err:
             print("StopIteration error:", err, "-- rewinding Cursor object.")
@@ -181,14 +181,14 @@ def changeName(update, context):
                 if document.next().get("lists") != None:
                     document.rewind()
                     mongo.db.itemsList.update_one({"_id": update.message.chat.id}, {"$set": {"lists.$[elem].name": context.args[1]}}, array_filters=[{"elem.name": context.args[0]}])
-                    update.message.reply_text(f"List's name changed to '{context.args[1]}'")
+                    update.message.reply_text(f"List name changed to '{context.args[1]}'")
                 else:
                     update.message.reply_text(f"You don't have any list with name '{context.args[0]}'! 😔")
             except StopIteration as err:
                 print("StopIteration error:", err, "-- rewinding Cursor object.")
                 update.message.reply_text("Internal server error, sorry for the incoveniences")
         else:
-            update.message.reply_text("Invalid list's name, the name only can have letters, numbers and '_'")
+            update.message.reply_text("Invalid list name, the name only can have letters, numbers and '_'")
 
 def changeHour(update, context):
     logMethod("/changeHour", update.message.chat.id, context)
@@ -208,7 +208,7 @@ def changeHour(update, context):
                             document.rewind()
                             mongo.db.itemsList.update_one({"_id": update.message.chat.id}, {"$set": {"lists.$[elem].hour": str(time)}}, array_filters=[{"elem.name": context.args[0]}])
                             changeJob(context.args[0], str(time), update.message.chat.id)
-                            update.message.reply_text(f"List's reminder hour changed to '{' '.join(context.args[1:])}'")
+                            update.message.reply_text(f"List reminder hour changed to '{' '.join(context.args[1:])}'")
                         else:
                             update.message.reply_text(f"You don't have any list with name '{context.args[0]}'! 😔")
                 else: update.message.reply_text("Incorrect datetime. This datetime is before this moment!")
@@ -217,8 +217,8 @@ def changeHour(update, context):
                 update.message.reply_text("Internal server error, sorry for the incoveniences")
             except ValueError:
                 print("Incorrect format datetime")
-                update.message.reply_text("The setted datetime is not correct. Please insert a correct datetime.")
-        else: update.message.reply_text("The setted datetime is not correct. Please insert a correct datetime.")
+                update.message.reply_text("The datetime is not correct. Please insert a correct datetime.")
+        else: update.message.reply_text("The datetime is not correct. Please insert a correct datetime.")
 
 def removeItems(update, context):
     logMethod("/removeItems", update.message.chat.id, context)
@@ -274,17 +274,17 @@ def help(update, context):
     logMethod("/help", update.message.chat.id, context)
     allCommands = f"List of commands: 😎\n\n"
     allCommands += "1. /repeat text: Returns the sent message.\n"
-    allCommands += "2. /timezone: Sets your timezone using your ubication. Example: Europe/Madrid\n"
-    allCommands += "3. /save name items hour : Saves a list and set a reminder hour.\n"
+    allCommands += "2. /timezone: Sets your timezone using your location. Example: Europe/Madrid\n"
+    allCommands += "3. /save name items hour : Saves a list and sets a reminder hour.\n"
     allCommands += "4. /add name items : Adds items to an existing list.\n"
     allCommands += "5. /remove name : Deletes an existing list.\n"
     allCommands += "6. /show name : Shows a description of the list.\n"
-    allCommands += "7. /showAll : Shows all list's names.\n"
+    allCommands += "7. /showAll : Shows all saved list names.\n"
     allCommands += "8. /changeName oldName newName : Changes the name of a created list.\n"
     allCommands += "9. /changeHour name hour : Changes the reminder hour of a created list. If the new hour is = 0, the reminder hour will be deleted.\n"
     allCommands += "10. /removeItems name items : Deletes the items of a list.\n"
-    allCommands += "11. /changeItems list oldItems . newItems : Removes old items and add the new items.\n"
-    allCommands += "12. /showTimezone: Shows your setted timezone.\n"
+    allCommands += "11. /changeItems list oldItems . newItems : Removes old items and adds the new items.\n"
+    allCommands += "12. /showTimezone: Shows your saved timezone.\n"
     update.message.reply_text(allCommands)
 
 def invalidCommandMessage(update):
