@@ -1,7 +1,8 @@
+import pathlib
 class BotConfiguration:
 
     def __init__(self):
-        settingsFile = open("/home/alejandro.jorge/WriteItDown_Bot/settings.txt", "r")
+        settingsFile = open(f"{pathlib.Path(__file__).parent.absolute()}/../settings.txt", "r")
         settingsFile = settingsFile.readlines()
         for line in settingsFile:
             if line.split("=")[0] == "TOKEN": self.token = line.split("=")[1].strip()
