@@ -1,9 +1,10 @@
+import pathlib
 from pymongo import MongoClient
 
 class MongoDbConfiguration:
 
     def __init__(self):
-        settingsFile = open("/home/alejandro.jorge/WriteItDown_Bot/settings.txt", "r")
+        settingsFile = open(f"{pathlib.Path(__file__).parent.absolute()}/../settings.txt", "r")
         settingsFile = settingsFile.readlines()
         for line in settingsFile:
             if line.split("=")[0] == "MONGO": mongoUrl = "=".join(line.split("=")[1:]).strip()
