@@ -1,13 +1,12 @@
 from telegram.ext import Updater, InlineQueryHandler, CommandHandler, MessageHandler, Filters
 from pprint import pprint
-import requests, json, re, logging, datetime, pytz, sys
+import requests, json, logging, datetime, pytz, sys
 from model.ItemsList import ItemsList
 from configuration.BotConfiguration import BotConfiguration
 from configuration.MongoDbConfiguration import MongoDbConfiguration
-from utils.DictToObject import DictToObject
+from utils import JobUtils, RegexChecker, DatetimeParser
 from model.Timezone import Timezone
 from timezonefinder import TimezoneFinder
-from crontab import CronTab
 
 FORMAT = '%(asctime)-15s %(message)s'
 logging.basicConfig(format=FORMAT, level=logging.INFO)
@@ -19,21 +18,22 @@ formatDate = "%Y-%m-%d"
 formatHour = "%H:%M:%S"
 formatDateAndHour = "%Y-%m-%d %H:%M:%S"
 bot = None
-cron = CronTab(user=True)
 
 def save(update, context):
     logMethod("/save", update.message.chat.id, context)
     if(len(context.args) < 3): 
         invalidCommandMessage(update)
     else: 
-        if not checkListName(context.args[0]):
-            if checkCorrectDatetime(" ".join(context.args[len(context.args)-2:])):
+        if not RegexChecker.checkListName(context.args[0]):
+            if RegexChecker.checkCorrectDatetime(" ".join(context.args[len(context.args)-2:])):
                 try:                   
                     totalArgs = len(context.args)
                     datetime.datetime.strptime(context.args[totalArgs-2], formatDate)
                     datetime.datetime.strptime(context.args[totalArgs-1], formatHour)
                     formatedDate = datetime.datetime.strptime(" ".join(context.args[totalArgs-2:]), formatDateAndHour)
-                    time = calculateSettedHour(update.message.chat.id, formatedDate)
+                    document = mongo.db.itemsList.find({"_id": update.message.chat.id})
+                    timezone = document.next().get("timezone")
+                    time = DatetimeParser.calculateSettedHour(formatedDate, timezone)
                     timeWithoutOffset = time.replace(tzinfo=None)
                     if timeWithoutOffset > datetime.datetime.today():
                         itemToSave = ItemsList(context.args[0], context.args[1:totalArgs-2], str(timeWithoutOffset))
@@ -46,7 +46,7 @@ def save(update, context):
                             document = mongo.db.itemsList.find({"_id": update.message.chat.id},{"lists": {"$elemMatch" : { "name": context.args[0]} }})
                             if document.next().get("lists") == None:
                                 mongo.db.itemsList.update_one({"_id": update.message.chat.id}, {"$push": {"lists": itemToSave.__dict__ }})
-                                createJob(itemToSave, update.message.chat.id)
+                                JobUtils.createJob(itemToSave, update.message.chat.id)
                             else: message = "You already have a list with this name!"
                         update.message.reply_text(message)
                     else: update.message.reply_text("Incorrect datetime. This datetime is before this moment!")
@@ -71,8 +71,8 @@ def add(update, context):
                 mongo.db.itemsList.update_one({"_id": update.message.chat.id}, {"$set": {"lists.$[elem].items": f"{document.next()['lists'][0].get('items')} {' '.join(context.args[1:])}"}}, array_filters=[{"elem.name": context.args[0]}])
                 update.message.reply_text("Added items to the list!")
             else:  update.message.reply_text("You don't have any list with this name! 😔")
-        except StopIteration as err:
-            print("StopIteration error:", err, "-- rewinding Cursor object.")
+        except StopIteration:
+            print("StopIteration error: Rewinding Cursor object.")
             update.message.reply_text("Internal server error, sorry for the incoveniences")
 
 def remove(update, context):
@@ -81,7 +81,7 @@ def remove(update, context):
     else:
         document = mongo.db.itemsList.update_one({"_id": update.message.chat.id},  { "$pull" : {"lists": { "name" : context.args[0]}}})
         if document.modified_count == 1:
-            removeJob(update.message.chat.id, context.args[0])
+            JobUtils.removeJob(update.message.chat.id, context.args[0])
             update.message.reply_text("Done!")
         else: update.message.reply_text(f"You don't have any list with name '{context.args[0]}'")
 
@@ -96,12 +96,14 @@ def show(update, context):
                 document.rewind()
                 itemList = document.next()
                 itemList = itemList["lists"][0]
-                gettedHour = calculateGettedHour(update.message.chat.id, itemList.get("hour")).replace(tzinfo=None)
+                document = mongo.db.itemsList.find({"_id": update.message.chat.id})
+                timezone = document.next().get("timezone")
+                gettedHour = DatetimeParser.calculateGettedHour(itemList.get("hour"), timezone).replace(tzinfo=None)
                 message = ItemsList(itemList.get("name"), [itemList.get("items")], gettedHour).showList()
                 update.message.reply_text(message)
             else: update.message.reply_text("A list with this name does not exist!")
-        except StopIteration as err:
-            print("StopIteration error:", err, "-- rewinding Cursor object.")
+        except StopIteration:
+            print("StopIteration error: Rewinding Cursor object.")
             update.message.reply_text("Internal server error, sorry for the incoveniences")
 
 def showAll(update, context):
@@ -114,12 +116,14 @@ def showAll(update, context):
         if len(document.next().get("lists")) != 0:
             document.rewind()
             for value in document.next().get("lists"):
-                gettedHour = calculateGettedHour(update.message.chat.id, value["hour"]).replace(tzinfo=None)
+                document = mongo.db.itemsList.find({"_id": update.message.chat.id})
+                timezone = document.next().get("timezone")
+                gettedHour = DatetimeParser.calculateGettedHour(value["hour"], timezone).replace(tzinfo=None)
                 message += ItemsList(value["name"], [value["items"]], gettedHour).showList() + '\n\n'
             update.message.reply_text(message)
         else: update.message.reply_text("You don't have lists for now, create one!")
-    except StopIteration as err:
-        print("StopIteration error:", err, "-- rewinding Cursor object.")
+    except StopIteration:
+        print("StopIteration error: Rewinding Cursor object.")
         update.message.reply_text("Internal server error, sorry for the incoveniences")
 
 def timezoneMessage(update, context):
@@ -147,9 +151,9 @@ def setTimezone(update, context):
                 message = f"Timezone setted!"
             update.message.reply_text(message)
             calledTimezone[update.message.chat.id] = False
-        except StopIteration as err:
+        except StopIteration:
             calledTimezone[update.message.chat.id] = False
-            print("StopIteration error:", err, "-- rewinding Cursor object.")
+            print("StopIteration error: Rewinding Cursor object.")
             update.message.reply_text("Internal server error, sorry for the incoveniences")
 
 
@@ -166,8 +170,8 @@ def showTimezone(update,context):
             else:
                 message = "You have not set your timezone yet, please use /timezone command to save it."
             update.message.reply_text(message)
-        except StopIteration as err:
-            print("StopIteration error:", err, "-- rewinding Cursor object.")
+        except StopIteration:
+            print("StopIteration error: Rewinding Cursor object.")
             update.message.reply_text("Internal server error, sorry for the incoveniences")
 
 def changeName(update, context):
@@ -175,7 +179,7 @@ def changeName(update, context):
     if not len(context.args) == 2: 
         invalidCommandMessage(update)
     else:
-        if not checkListName(context.args[0]):
+        if not RegexChecker.checkListName(context.args[0]):
             try:
                 document = mongo.db.itemsList.find({"_id": update.message.chat.id}, {"lists": {"$elemMatch": {"name": context.args[0]}}})
                 if document.next().get("lists") != None:
@@ -184,8 +188,8 @@ def changeName(update, context):
                     update.message.reply_text(f"List name changed to '{context.args[1]}'")
                 else:
                     update.message.reply_text(f"You don't have any list with name '{context.args[0]}'! 😔")
-            except StopIteration as err:
-                print("StopIteration error:", err, "-- rewinding Cursor object.")
+            except StopIteration:
+                print("StopIteration error: Rewinding Cursor object.")
                 update.message.reply_text("Internal server error, sorry for the incoveniences")
         else:
             update.message.reply_text("Invalid list name, the name only can have letters, numbers and '_'")
@@ -195,25 +199,27 @@ def changeHour(update, context):
     if not len(context.args) == 3: 
         invalidCommandMessage(update)
     else:
-        if checkCorrectDatetime(" ".join(context.args[1:])):
+        if RegexChecker.checkCorrectDatetime(" ".join(context.args[1:])):
             try:
                 datetime.datetime.strptime(context.args[1], formatDate)
                 datetime.datetime.strptime(context.args[2], formatHour)
                 formatedDate = datetime.datetime.strptime(" ".join(context.args[1:]), formatDateAndHour)
-                time = calculateSettedHour(update.message.chat.id, formatedDate)
+                document = mongo.db.itemsList.find({"_id": update.message.chat.id})
+                timezone = document.next().get("timezone")
+                time = DatetimeParser.calculateSettedHour(formatedDate, timezone)
                 timeWithoutOffset = time.replace(tzinfo=None)
                 if timeWithoutOffset > datetime.datetime.today():
                         document = mongo.db.itemsList.find({"_id": update.message.chat.id}, {"lists": {"$elemMatch": {"name": context.args[0]}}})
                         if document.next().get("lists") != None:
                             document.rewind()
                             mongo.db.itemsList.update_one({"_id": update.message.chat.id}, {"$set": {"lists.$[elem].hour": str(time)}}, array_filters=[{"elem.name": context.args[0]}])
-                            changeJob(context.args[0], str(time), update.message.chat.id)
+                            JobUtils.changeJob(context.args[0], str(time), update.message.chat.id)
                             update.message.reply_text(f"List reminder hour changed to '{' '.join(context.args[1:])}'")
                         else:
                             update.message.reply_text(f"You don't have any list with name '{context.args[0]}'! 😔")
                 else: update.message.reply_text("Incorrect datetime. This datetime is before this moment!")
-            except StopIteration as err:
-                print("StopIteration error:", err, "-- rewinding Cursor object.")
+            except StopIteration:
+                print("StopIteration error: Rewinding Cursor object.")
                 update.message.reply_text("Internal server error, sorry for the incoveniences")
             except ValueError:
                 print("Incorrect format datetime")
@@ -234,8 +240,8 @@ def removeItems(update, context):
                 mongo.db.itemsList.update_one({"_id": update.message.chat.id}, {"$set": {"lists.$[elem].items": finalItems}}, array_filters=[{"elem.name": context.args[0]}])
                 update.message.reply_text("Removed items!")
             else:  update.message.reply_text("You don't have any list with this name! 😔")
-        except StopIteration as err:
-            print("StopIteration error:", err, "-- rewinding Cursor object.")
+        except StopIteration:
+            print("StopIteration error: Rewinding Cursor object.")
             update.message.reply_text("Internal server error, sorry for the incoveniences")
 
 def changeItems(update, context):
@@ -254,8 +260,8 @@ def changeItems(update, context):
                 mongo.db.itemsList.update_one({"_id": update.message.chat.id}, {"$set": {"lists.$[elem].items": finalItems}}, array_filters=[{"elem.name": context.args[0]}])
                 update.message.reply_text("Items have been changed!")
             else:  update.message.reply_text("You don't have any list with this name! 😔")
-        except StopIteration as err:
-            print("StopIteration error:", err, "-- rewinding Cursor object.")
+        except StopIteration:
+            print("StopIteration error: Rewinding Cursor object.")
             update.message.reply_text("Internal server error, sorry for the incoveniences")
 
 def echo(update, context):
@@ -290,48 +296,10 @@ def help(update, context):
 def invalidCommandMessage(update):
     update.message.reply_text("Incorrect command!")
 
-def checkListName(name):
-    return re.findall("\\W", name)
-
-def checkCorrectDatetime(datetime):
-    return re.findall("(\\d{4})-(\\d{2})-(\\d{2}) (\\d{2}):(\\d{2}):(\\d{2})", datetime)
-
-def calculateSettedHour(idUser, date):
-    document = mongo.db.itemsList.find({"_id": idUser})
-    timezone = document.next().get("timezone")
-    userTimezone = pytz.timezone(timezone)
-    esp = pytz.timezone('Europe/Madrid')
-    userTimezone = userTimezone.localize(date)
-    hourSpain = userTimezone.astimezone(esp)
-    return hourSpain
-
-def calculateGettedHour(idUser, date):
-    document = mongo.db.itemsList.find({"_id": idUser})
-    timezone = document.next().get("timezone")
-    userTimezone = pytz.timezone(timezone)
-    esp = pytz.timezone('Europe/Madrid')
-    date = datetime.datetime.strptime(date, "%Y-%m-%d %H:%M:%S")
-    esp = esp.localize(date)
-    userHour = esp.astimezone(userTimezone)
-    return userHour
-
 def logMethod(method, idChat, context):
     if context.args != None:
         log.info(f"User {idChat} >> Command {method} {' '.join(context.args)}")
     else: log.info(f"User {idChat} >> Command {method}") 
-
-def createJob(itemList, idChat):
-    datetime = itemList.hour.split(" ")
-    date = datetime[0].split("-")
-    hour = datetime[1].split(":")
-
-    job = cron.new(command=f"python3 {__file__} 'sendReminderMessage({idChat}, \"{itemList.name}\")'")
-    job.set_comment(f"{idChat}_{itemList.name}")
-    job.setall(hour[1], hour[0], date[2], date[1], None)
-    cron.write()
-
-    for job in cron:
-        print(job)
 
 def sendReminderMessage(idChat, listName):
     document = mongo.db.itemsList.find({"_id": idChat}, {"lists": {"$elemMatch": {"name": listName} }})
@@ -339,25 +307,9 @@ def sendReminderMessage(idChat, listName):
         year = document.next().get("lists")[0].get("hour").split(" ")[0].split("-")[0]
         if str(datetime.datetime.today().year) == year:
             bot.send_message(idChat, f"Reminder of list '{listName}'!")
-            removeJob(idChat, listName)
+            JobUtils.removeJob(idChat, listName)
     except StopIteration as err:
         print("StopIteration error:", err, "-- rewinding Cursor object.")
-
-
-def changeJob(nameList, hour, idChat):
-    datetime = hour[:len(hour)-6]
-    datetime = datetime.split(" ")
-    date = datetime[0].split("-")
-    hour = datetime[1].split(":")
-    jobs = cron.find_comment(f"{idChat}_{nameList}")
-    for job in jobs:
-        job.setall(hour[1], hour[0], date[2], date[1], None)
-        cron.write()
-
-def removeJob(idChat, listName):
-    print(f"{idChat}_{listName}")
-    cron.remove_all(comment=f"{idChat}_{listName}")
-    cron.write()
 
 def main():
     log.info(sys.argv)
