@@ -1,11 +1,9 @@
 from telegram.ext import Updater, InlineQueryHandler, CommandHandler, MessageHandler, Filters
 from pprint import pprint
 import requests, json, logging, datetime, pytz, sys
-from model.ItemsList import ItemsList
-from configuration.BotConfiguration import BotConfiguration
-from configuration.MongoDbConfiguration import MongoDbConfiguration
+from model import ItemsList
+from configuration import BotConfiguration, MongoDbConfiguration
 from utils import JobUtils, RegexChecker, DatetimeParser
-from model.Timezone import Timezone
 from timezonefinder import TimezoneFinder
 
 FORMAT = '%(asctime)-15s %(message)s'
@@ -119,7 +117,7 @@ def showAll(update, context):
                 document = mongo.db.itemsList.find({"_id": update.message.chat.id})
                 timezone = document.next().get("timezone")
                 gettedHour = DatetimeParser.calculateGettedHour(value["hour"], timezone).replace(tzinfo=None)
-                message += ItemsList(value["name"], [value["items"]], gettedHour).showList() + '\n\n'
+                message += ItemsList.ItemsList(value["name"], [value["items"]], gettedHour).showList() + '\n\n'
             update.message.reply_text(message)
         else: update.message.reply_text("You don't have lists for now, create one!")
     except StopIteration:
