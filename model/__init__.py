@@ -1,2 +1,1 @@
-from . import *
-from ItemsList import ItemsList
+from model.ItemsList import ItemsList

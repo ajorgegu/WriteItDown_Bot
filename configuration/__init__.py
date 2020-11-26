@@ -1,3 +1,2 @@
-from . import *
-from BotConfiguration import BotConfiguration
-from MongoDbConfiguration import MongoDbConfiguration
+from configuration.BotConfiguration import BotConfiguration
+from configuration.MongoDbConfiguration import MongoDbConfiguration

@@ -1,4 +1,5 @@
 from crontab import CronTab
+import pathlib
 cron = CronTab(user=True)
 
 def createJob(itemList, idChat):
@@ -6,7 +7,7 @@ def createJob(itemList, idChat):
     date = datetime[0].split("-")
     hour = datetime[1].split(":")
 
-    job = cron.new(command=f"python3 {__file__} 'sendReminderMessage({idChat}, \"{itemList.name}\")'")
+    job = cron.new(command=f"python3 {pathlib.Path(__file__).parent.absolute()}/../WriteItDownApplication.py 'sendReminderMessage({idChat}, \"{itemList.name}\")'")
     job.set_comment(f"{idChat}_{itemList.name}")
     job.setall(hour[1], hour[0], date[2], date[1], None)
     cron.write()
